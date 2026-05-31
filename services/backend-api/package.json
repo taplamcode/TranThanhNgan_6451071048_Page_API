@@ -1,0 +1,21 @@
+{
+  "name": "backend-api",
+  "version": "1.0.0",
+  "description": "REST API Proxy to Meta Graph API, and Kafka Consumer for auto-replies with Idempotency",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "axios": "^1.9.0",
+    "kafkajs": "^2.2.4",
+    "dotenv": "^16.4.5",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
