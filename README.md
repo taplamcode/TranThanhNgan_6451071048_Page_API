@@ -1,256 +1,208 @@
-# Facebook Page API Backend
+# 🤖 Facebook Page Automation System - Monorepo Microservices
 
-## 1) Chuẩn bị (Phần 1)
+Hệ thống tự động hóa phản hồi và quản lý tương tác trên **Facebook Page** được thiết kế theo kiến trúc **Event-Driven Microservices** và quản lý tập trung bằng mô hình **Monorepo**. 
 
-### 1.1 Tạo Facebook Page
-1. Vào Facebook > tạo Page mới.
-2. Đặt tên Page theo đề bài (ví dụ: `TranThanhNgan Demo Page`).
-3. Sau khi tạo, vào `About` hoặc `Page transparency` để lấy `Page ID`.
+Hệ thống tận dụng hàng đợi thông điệp **Apache Kafka** để đảm bảo khả năng mở rộng (scalability), xử lý bất đồng bộ (asynchronous processing), chống trùng lặp dữ liệu (idempotency), tích hợp trí tuệ nhân tạo **Gemini AI** để sinh câu trả lời tự động thông minh, và cơ chế thử lại lỗi tự động (exponential backoff retry).
 
-Screenshot cần nộp:
-- Ảnh hiển thị tên Page + Page ID.
+---
 
-### 1.2 Tạo Facebook App (Meta for Developers)
-1. Vào https://developers.facebook.com/
-2. Chọn `My Apps` > `Create App`.
-3. Chọn loại app phù hợp (thông thường: `Business`).
-4. Thêm sản phẩm `Facebook Login` và `Graph API` (nếu cần).
+## 📐 Kiến trúc Hệ thống & Luồng Dữ liệu (E2E)
 
-Screenshot cần nộp:
-- Ảnh Dashboard của app (có App Name + App ID).
+Hệ thống bao gồm nhiều dịch vụ chuyên biệt tương tác với nhau thông qua các **Kafka Topics**:
 
-### 1.3 Lấy Page Access Token
-1. Dùng Graph API Explorer hoặc Facebook Login flow để lấy User Token.
-2. Exchange sang long-lived user token (nếu cần).
-3. Lấy Page token từ endpoint `/{pageId}?fields=access_token` hoặc qua công cụ quản lý token.
-4. Đảm bảo token có các quyền:
-- `pages_manage_posts`
-- `pages_read_engagement`
-- `pages_read_user_content`
-- `read_insights`
+```mermaid
+graph TD
+    %% Định nghĩa các Style đẹp mắt
+    classDef external fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef service fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef queue fill:#fdd,stroke:#333,stroke-width:2px;
+    classDef database fill:#dfd,stroke:#333,stroke-width:2px;
 
-Screenshot cần nộp:
-- Ảnh token (có thể che bớt token cho an toàn) + danh sách permissions.
+    FB[Facebook Page Webhook] -->|HTTP POST| WS[Webhook Service<br/>Port 3001]:::service
+    WS -->|Publish raw event| K1[Kafka Topic:<br/><b>raw_events</b>]:::queue
+    
+    K1 -->|Consume| CS[Core AI Service<br/>Port 3002]:::service
+    CS -->|1. Check Spam<br/>2. Generate Gemini AI Response| CS
+    CS -->|Publish command| K2[Kafka Topic:<br/><b>reply_commands</b>]:::queue
+    
+    K2 & K4 -->|Consume| BE[Backend API Proxy<br/>Port 3000]:::service
+    BE -->|Idempotency Check| DB[(data/idempotency.json)]:::database
+    BE -.->|Meta Graph API Call| FB
+    BE -->|If Meta API Fails: Publish| K3[Kafka Topic:<br/><b>send_failed</b>]:::queue
+    
+    K3 -->|Consume| RS[Retry Service<br/>Port 3003]:::service
+    RS -->|If Attempt < 3:<br/>Exponential Backoff| K4[Kafka Topic:<br/><b>send_retry</b>]:::queue
+    RS -->|If Attempt >= 3:<br/>Escalate| DLQ[Kafka Topic:<br/><b>dead_letter</b>]:::queue
+    DLQ -->|Simulate Alert| Slack[Slack Incident Alert]:::external
 
-## 2) API Backend (Phan 2)
-
-Project đã triển khai đủ các endpoint:
-- `GET /api/page/{pageId}`
-- `GET /api/page/{pageId}/posts`
-- `POST /api/page/{pageId}/posts`
-- `DELETE /api/page/post/{postId}`
-- `GET /api/page/post/{postId}/comments`
-- `GET /api/page/post/{postId}/likes`
-- `GET /api/page/{pageId}/insights`
-
-## 3) Cài đặt và chạy
-
-### 3.1 Cài dependency
-```bash
-npm install
+    %% Gán class cho các node tương ứng
+    class FB,Slack external;
 ```
 
-### 3.2 Tạo file `.env`
-Tạo file `.env` từ `.env.example`:
-```env
-PORT=3000
-GRAPH_API_VERSION=v23.0
-PAGE_ACCESS_TOKEN=YOUR_PAGE_ACCESS_TOKEN
+---
+
+## 📁 Cấu trúc Thư mục Dự án
+
+```text
+/
+├── services/
+│   ├── webhook-service/        # Nhận Webhooks từ Meta, ký xác thực chữ ký bảo mật (Port 3001)
+│   ├── core-service/           # Lọc spam & Tích hợp Gemini AI sinh câu trả lời tự động (Port 3002)
+│   ├── backend-api/            # REST API, Swagger UI, Check trùng lặp Idempotent & gửi tin (Port 3000)
+│   └── retry-service/          # Cơ chế Exponential Backoff & quản lý hàng đợi lỗi DLQ (Port 3003)
+│
+├── shared/                     # Thư viện dùng chung của các microservices
+│   ├── constants.js            # Khai báo tập trung các Kafka Topics dùng chung
+│   └── logger.js               # Định dạng Logger console đẹp mắt, phân loại màu trực quan
+│
+├── docker-compose.yml          # Trình phối hợp Docker chạy toàn bộ infra (Kafka, Zookeeper, UI) & services
+├── .env                        # Chứa cấu hình môi trường bảo mật (được gitignore)
+├── .env.example                # File mẫu cấu hình môi trường cho phát triển
+├── package.json                # Định nghĩa scripts tổng của Monorepo (npm run ...)
+└── test_webhook.js             # Kịch bản giả lập webhook để test hệ thống End-to-End
 ```
 
-### 3.3 Chạy server
-```bash
-npm start
-```
+---
 
-Server mặc định chạy tại: `http://localhost:3000`
+## ⚙️ Cấu hình Môi trường (`.env`)
 
-Swagger UI: `http://localhost:3000/docs`
+Tạo file `.env` tại thư mục gốc bằng cách sao chép file `.env.example` và điều chỉnh các giá trị:
 
-## 4) Test nhanh bằng curl
+| Biến Môi Trường | Giá trị Mặc định | Mô tả | Chi tiết |
+| :--- | :--- | :--- | :--- |
+| **PORT** | `3000` | Port chạy Backend API | Phục vụ Swagger UI & điều phối gửi tin nhắn |
+| **GRAPH_API_VERSION** | `v23.0` | Phiên bản Meta Graph API | Sử dụng để giao tiếp với Facebook Page |
+| **PAGE_ACCESS_TOKEN** | *Bắt buộc* | Facebook Page Access Token | Token có quyền `pages_messaging`, `pages_manage_metadata` |
+| **PAGE_ID** | *Bắt buộc* | ID của Facebook Page | ID trang cần tự động hóa |
+| **ADMIN_TOKEN** | `admin_thanhngan_123` | Bearer Token cho các API Admin | Bảo vệ các route nhạy cảm (tạo bài viết, xem insights) |
+| **FACEBOOK_VERIFY_TOKEN** | `thanhngan` | Token xác thực Webhook | Điền vào trang cấu hình Webhook của Facebook Developer portal |
+| **FACEBOOK_APP_SECRET** | *Bắt buộc* | Khóa bí mật của Ứng dụng | Dùng để xác thực tính toàn vẹn (X-Hub-Signature-256) |
+| **WEBHOOK_SKIP_SIGNATURE**| `false` | Bỏ qua xác thực chữ ký | Đặt thành `true` khi chạy dev giả lập cục bộ |
+| **GEMINI_API_KEY** | *Tùy chọn* | Google Gemini API Key | Nếu không cấu hình, Core Service sẽ tự động dùng Mock Response |
 
-### GET page info
-```bash
-curl http://localhost:3000/api/page/{pageId}
-```
+---
 
-### GET page posts
-```bash
-curl "http://localhost:3000/api/page/{pageId}/posts?limit=5"
-```
+## 🚀 Hướng dẫn Cài đặt & Khởi chạy
 
-### POST tạo bài viết
-```bash
-curl -X POST http://localhost:3000/api/page/{pageId}/posts \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Hello from API"}'
-```
+### 📦 Cách 1: Chạy bằng Docker Compose (Khuyên dùng & Đơn giản nhất)
 
-### DELETE bài viết
-```bash
-curl -X DELETE http://localhost:3000/api/page/post/{postId}
-```
+Yêu cầu máy tính của bạn đã cài đặt sẵn **Docker** và **Docker Compose**.
 
-### GET comments của bài viết
-```bash
-curl "http://localhost:3000/api/page/post/{postId}/comments?limit=10"
-```
+1. **Khởi chạy toàn bộ hệ thống:**
+   ```bash
+   npm run docker:up
+   ```
+   *Lệnh này sẽ tự động tải các image cần thiết (Kafka, Zookeeper, Kafka UI), build Dockerfiles cho 4 microservices và kích hoạt đồng thời.*
 
-## 5) Bài 2: Webhook và Kafka (Real-time Processing)
+2. **Dừng hệ thống:**
+   ```bash
+   npm run docker:down
+   ```
 
-### 5.1 Cài đặt biến môi trường
-Mở file `.env` và cấu hình các thông số sau:
-```env
-FACEBOOK_VERIFY_TOKEN=thanhngan
-FACEBOOK_APP_SECRET=your_app_secret
-KAFKA_CLIENT_ID=page-api-webhook
-KAFKA_BROKERS=localhost:9092
-```
+### 💻 Cách 2: Chạy Local trực tiếp (Chế độ Nhà phát triển)
 
-### 5.2 Chạy hệ thống bằng Docker
-Khởi động Kafka và Webhook Service:
-```bash
-docker compose up --build -d
-```
-Server Webhook sẽ chạy ở cổng `3001`.
+Yêu cầu đã cài đặt **Node.js** (v18+) và có một cụm Kafka đang chạy (hoặc dùng docker để chạy riêng Kafka).
 
-### 5.3 Expose Webhook bằng Ngrok
-Dùng Ngrok để cung cấp đường dẫn HTTPS cho Facebook:
-```bash
-ngrok http 3001
-```
-Copy đường dẫn ngrok (ví dụ: `https://your-ngrok-url.ngrok-free.dev/webhook`).
+1. **Cài đặt thư viện gốc:**
+   ```bash
+   npm install
+   ```
+2. **Khởi chạy độc lập từng Service qua script npm:**
+   - Chạy Webhook Service: `npm run dev:webhook`
+   - Chạy Backend API: `npm run dev:backend`
+   - Chạy Core AI Service: `npm run dev:core`
+   - Chạy Retry Service: `npm run dev:retry`
 
-### 5.4 Cấu hình Facebook Webhooks
-1. Vào Developer Dashboard > **Webhooks**.
-2. Chọn **Page** trong menu xổ xuống.
-3. Nhấn **Subscribe to this object**.
-4. Điền Callback URL: `https://your-ngrok-url.ngrok-free.dev/webhook`
-5. Verify Token: `thanhngan`
-6. Nhấn **Verify and Save**.
-7. Tìm event `feed` (để nhận bình luận, bài viết) và `messages` (để nhận tin nhắn) > Bấm **Subscribe**.
+---
 
-### 5.5 Kiểm tra luồng dữ liệu
-1. Lên trang Facebook Page của bạn, thử **bình luận (comment)** vào một bài viết bất kỳ.
-2. Kiểm tra log của Webhook service:
-```bash
-docker logs -f page-api-webhook-service
-```
-*(Bạn sẽ thấy log in ra payload đã được chuẩn hóa (normalize) và dòng "Published event to Kafka topic raw_events")*
+## 📊 Danh sách Cổng Dịch vụ & UI Giám sát
 
-3. Đọc dữ liệu từ topic `raw_events` trong Kafka:
-```bash
-docker exec -it page-api-kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic raw_events --from-beginning
-```
-*(Bạn sẽ thấy JSON chuẩn hóa chứa thông tin comment vừa tạo)*
-curl "http://localhost:3000/api/page/post/{postId}/likes?limit=25"
-```
+Khi hệ thống đang hoạt động, bạn có thể truy cập các đường dẫn sau:
 
-### GET page insights
-```bash
-curl "http://localhost:3000/api/page/{pageId}/insights"
-```
+- **🌐 Backend API Entrypoint**: `http://localhost:3000`
+- **📖 Swagger API Documentation**: `http://localhost:3000/docs` (Xem chi tiết tất cả API, tham số và thử nghiệm gửi nhận)
+- **⚡ Webhook Receiver**: `http://localhost:3001/webhook` (Nơi nhận payload từ Facebook gửi sang)
+- **🐳 Kafka UI Manager**: `http://localhost:8080` (Giao diện đồ họa giám sát trực quan các Topics, Consumers, Messages trong thời gian thực)
 
-## 5) Cấu trúc project
+---
 
-- `src/server.js`: Khởi tạo Express app.
-- `src/routes/pageRoutes.js`: Định nghĩa các API route.
-- `src/services/facebookService.js`: Gọi Facebook Graph API.
+## 📖 Danh sách API Endpoints (Backend API)
 
-## 6) Bài 2 - Webhook + Kafka (Realtime)
+Tất cả các API yêu cầu xác thực Admin cần đính kèm Header: `Authorization: Bearer <ADMIN_TOKEN>`
 
-Đã bổ sung `webhook-service` chạy riêng ở port `3001` để:
-- Nhận webhook từ Facebook tại endpoint `/webhook`
-- Verify request bằng `x-hub-signature-256`
-- Normalize payload về schema chuẩn
-- Publish sự kiện vào Kafka topic `raw_events`
+### 📝 Quản lý Bài viết & Nội dung
+- **`GET /api/page/:pageId`**
+  - **Quyền:** Public
+  - **Mô tả:** Lấy thông tin chi tiết của Facebook Page.
+- **`GET /api/page/:pageId/posts`**
+  - **Quyền:** Public
+  - **Mô tả:** Lấy danh sách các bài viết trên Page (Hỗ trợ query `?limit=10`).
+- **`POST /api/page/:pageId/posts`**
+  - **Quyền:** 🔐 **Admin Only**
+  - **Mô tả:** Đăng bài viết mới lên trang Facebook.
+  - **Body:** `{ "message": "Nội dung bài viết mới" }`
+- **`DELETE /api/page/post/:postId`**
+  - **Quyền:** 🔐 **Admin Only**
+  - **Mô tả:** Xóa bài viết khỏi trang Facebook.
 
-### 6.1 Biến môi trường cần thêm
+### 💬 Quản lý Tương tác & Phản hồi
+- **`GET /api/page/post/:postId/comments`**
+  - **Quyền:** Public
+  - **Mô tả:** Lấy toàn bộ bình luận của bài viết chỉ định.
+- **`GET /api/page/post/:postId/likes`**
+  - **Quyền:** Public
+  - **Mô tả:** Lấy danh sách lượt like/thả tim bài viết.
 
-```env
-WEBHOOK_PORT=3001
-FACEBOOK_VERIFY_TOKEN=my_verify_token
-FACEBOOK_APP_SECRET=YOUR_FACEBOOK_APP_SECRET
-WEBHOOK_SKIP_SIGNATURE=false
+### 📈 Báo cáo & Thống kê
+- **`GET /api/page/:pageId/insights`**
+  - **Quyền:** 🔐 **Admin Only**
+  - **Mô tả:** Truy xuất các chỉ số tương tác (impressions, engaged users, fans).
 
-KAFKA_BROKERS=localhost:9092
-KAFKA_TOPIC=raw_events
-KAFKA_CLIENT_ID=webhook-service
-KAFKA_CONNECT_RETRIES=10
-KAFKA_CONNECT_RETRY_DELAY_MS=2000
-```
+---
 
-### 6.2 Chạy nhanh bằng Docker Compose
+## 🧪 Quy trình Kiểm thử End-to-End (E2E Simulation)
 
-```bash
-docker compose up --build -d
-```
+Hệ thống đi kèm một file test kịch bản tự động gửi bình luận giả lập để kiểm tra độ tin cậy của toàn bộ luồng Event-Driven.
 
-Service sau khi chạy:
-- Webhook service: `http://localhost:3001`
-- Health check: `GET http://localhost:3001/health`
+1. **Khởi chạy mô phỏng:**
+   ```bash
+   npm run test:webhook
+   ```
 
-### 6.3 Verify webhook endpoint (GET)
+2. **Theo dõi luồng xử lý qua Logs:**
+   - **BƯỚC 1: Webhook Service tiếp nhận và chuẩn hóa dữ liệu**
+     ```bash
+     docker logs -f page-api-webhook-service
+     ```
+     *(Bạn sẽ thấy Webhook nhận payload từ `test_webhook.js`, chuyển đổi sang định dạng chuẩn và đẩy vào topic `raw_events`)*
 
-```bash
-curl "http://localhost:3001/webhook?hub.mode=subscribe&hub.verify_token=my_verify_token&hub.challenge=123456"
-```
+   - **BƯỚC 2: Core AI Service nhận diện tin nhắn & Sinh câu trả lời**
+     ```bash
+     docker logs -f page-api-core-service
+     ```
+     *(Core Service đọc tin nhắn từ topic, lọc spam, gửi request đến Gemini AI (hoặc Mock) để lấy nội dung phản hồi, sau đó đẩy mệnh lệnh vào topic `reply_commands`)*
 
-Nếu token đúng, response trả về `123456`.
+   - **BƯỚC 3: Backend API thực thi tương tác & Chống gửi trùng**
+     ```bash
+     docker logs -f page-api-backend
+     ```
+     *(Backend đọc mệnh lệnh từ topic, thực hiện kiểm tra cơ chế **Idempotency** (Chống trùng lặp tin bằng ID độc nhất). Nếu tin hợp lệ, nó sẽ gọi Meta Graph API để trả lời bình luận)*
 
-### 6.4 Test webhook POST local (không cần chữ ký)
+   - **BƯỚC 4: Retry Service xử lý tự động khi có lỗi hệ thống**
+     ```bash
+     docker logs -f page-api-retry-service
+     ```
+     *(Nếu bước gửi tin từ Backend gặp sự cố mạng hoặc lỗi từ API Facebook, sự kiện lỗi sẽ đẩy sang `send_failed`. Retry Service sẽ tiêu thụ, tính toán thời gian chờ tăng dần (Exponential Backoff) và thực hiện gửi lại tối đa 3 lần trước khi đánh dấu là Dead Letter Queue (DLQ))*
 
-Trong `.env`, tạm đặt:
+---
 
-```env
-WEBHOOK_SKIP_SIGNATURE=true
-```
+## 🛠️ Bảo trì & Khắc phục sự cố
 
-Sau đó gửi thử payload:
+### 1. Sửa lỗi kết nối Kafka khi khởi động cục bộ
+Nếu khởi chạy không dùng Docker và gặp lỗi `KafkaJSConnectionError`, hãy đảm bảo cụm Kafka của bạn đang chạy tốt và biến `KAFKA_BROKERS` trong file `.env` đã trỏ đúng IP/Port.
 
-```bash
-curl -X POST http://localhost:3001/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "object": "page",
-    "entry": [
-      {
-        "id": "123456789",
-        "time": 1714046400,
-        "changes": [
-          {
-            "field": "feed",
-            "value": {
-              "item": "comment",
-              "verb": "add",
-              "post_id": "123_456",
-              "comment_id": "789",
-              "message": "Xin chao"
-            }
-          }
-        ]
-      }
-    ]
-  }'
-```
+### 2. Kiểm tra lưu trữ Idempotent
+File chống trùng lặp thông điệp nằm tại đường dẫn: `services/backend-api/data/idempotency.json`. Nếu bạn muốn reset toàn bộ lịch sử chặn trùng để test lại từ đầu, bạn có thể xóa nội dung trong file này (nhớ giữ lại dạng json hợp lệ `{}`).
 
-Kết quả mong đợi: API trả `accepted`, và event đã được đẩy vào topic `raw_events`.
-
-### 6.5 Đọc dữ liệu trong topic `raw_events`
-
-```bash
-docker exec -it page-api-kafka kafka-console-consumer \
-  --bootstrap-server kafka:9092 \
-  --topic raw_events \
-  --from-beginning
-```
-
-### 6.6 Chạy webhook service không dùng Docker
-
-1) Chạy Kafka local (hoặc vẫn dùng `docker compose up -d kafka`)
-
-2) Chạy service:
-
-```bash
-npm run start:webhook
-```
+---
+*Phát triển và vận hành hệ thống microservices tự động hóa hàng đầu chuyên nghiệp bởi nhóm dự án.*

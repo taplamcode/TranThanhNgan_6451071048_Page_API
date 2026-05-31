@@ -1,3 +1,4 @@
+require('dotenv').config();
 const crypto = require('crypto');
 const appSecret = process.env.FACEBOOK_APP_SECRET || '';
 

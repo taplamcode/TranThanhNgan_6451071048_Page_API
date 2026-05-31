@@ -24,7 +24,7 @@ services:
   webhook-service:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: services/webhook-service/Dockerfile
     container_name: page-api-webhook-service
     depends_on:
       - kafka
@@ -32,12 +32,77 @@ services:
       - "3001:3001"
     environment:
       WEBHOOK_PORT: 3001
-      FACEBOOK_VERIFY_TOKEN: ${FACEBOOK_VERIFY_TOKEN:-my_verify_token}
-      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-change_me}
+      FACEBOOK_VERIFY_TOKEN: ${FACEBOOK_VERIFY_TOKEN:-thanhngan}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET}
       WEBHOOK_SKIP_SIGNATURE: ${WEBHOOK_SKIP_SIGNATURE:-false}
       KAFKA_BROKERS: kafka:9092
-      KAFKA_TOPIC: raw_events
-      KAFKA_CLIENT_ID: webhook-service
+      KAFKA_CONNECT_RETRIES: 10
+      KAFKA_CONNECT_RETRY_DELAY_MS: 2000
+
+  backend-api:
+    build:
+      context: .
+      dockerfile: services/backend-api/Dockerfile
+    container_name: page-api-backend
+    depends_on:
+      - kafka
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      GRAPH_API_VERSION: ${GRAPH_API_VERSION:-v23.0}
+      PAGE_ACCESS_TOKEN: ${PAGE_ACCESS_TOKEN}
+      PAGE_ID: ${PAGE_ID}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-admin_thanhngan_123}
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CONNECT_RETRIES: 10
+      KAFKA_CONNECT_RETRY_DELAY_MS: 2000
+    volumes:
+      - backend_data:/app/data
+
+  core-service:
+    build:
+      context: .
+      dockerfile: services/core-service/Dockerfile
+    container_name: page-api-core-service
+    depends_on:
+      - kafka
+    ports:
+      - "3002:3002"
+    environment:
+      CORE_PORT: 3002
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CONNECT_RETRIES: 10
+      KAFKA_CONNECT_RETRY_DELAY_MS: 2000
+
+  retry-service:
+    build:
+      context: .
+      dockerfile: services/retry-service/Dockerfile
+    container_name: page-api-retry-service
+    depends_on:
+      - kafka
+    ports:
+      - "3003:3003"
+    environment:
+      RETRY_PORT: 3003
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CONNECT_RETRIES: 10
+      KAFKA_CONNECT_RETRY_DELAY_MS: 2000
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: page-api-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
 
 volumes:
   kafka_data:
+  backend_data:

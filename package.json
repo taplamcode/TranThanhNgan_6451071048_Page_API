@@ -1,23 +1,18 @@
 {
-  "name": "tranthanhngan-page-api",
+  "name": "facebook-auto-system-monorepo",
   "version": "1.0.0",
-  "description": "Facebook Page Graph API backend",
-  "main": "src/server.js",
+  "description": "Root workspace of Facebook Page Automation system using Microservice Architecture",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "start:webhook": "node src/webhookServer.js",
-    "dev:webhook": "nodemon src/webhookServer.js"
-  },
-  "dependencies": {
-    "axios": "^1.9.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.2",
-    "kafkajs": "^2.2.4",
-    "swagger-ui-express": "^5.0.1"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.10"
+    "start:webhook": "npm --prefix services/webhook-service start",
+    "dev:webhook": "npm --prefix services/webhook-service run dev",
+    "start:backend": "npm --prefix services/backend-api start",
+    "dev:backend": "npm --prefix services/backend-api run dev",
+    "start:core": "npm --prefix services/core-service start",
+    "dev:core": "npm --prefix services/core-service run dev",
+    "start:retry": "npm --prefix services/retry-service start",
+    "dev:retry": "npm --prefix services/retry-service run dev",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down",
+    "test:webhook": "node test_webhook.js"
   }
 }
