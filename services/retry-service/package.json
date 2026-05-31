@@ -1,0 +1,18 @@
+{
+  "name": "retry-service",
+  "version": "1.0.0",
+  "description": "Applies exponential backoff retry strategies on failed deliveries, or routes to Dead Letter Queue (DLQ)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "kafkajs": "^2.2.4",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
